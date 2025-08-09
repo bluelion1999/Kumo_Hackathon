@@ -1,6 +1,6 @@
 # Core Dependencies
 streamlit>=1.38.0
-kumo>=0.4.0
+kumo
 
 # Data Processing
 pandas>=2.1.0
