@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import time
+import kumoai.experimental.rfm as rfm
+
 
 st.set_page_config(page_title="Medicare Fraud Detection", layout="wide")
 st.title("Medicare Fraud Detection Dashboard")
@@ -10,6 +12,7 @@ st.title("Medicare Fraud Detection Dashboard")
 def init_connection():
     return st.connection("snowflake")
 
+@st.cache_data
 def run_query_safe(query, max_retries=3):
     """Run query with automatic retry on connection failure"""
     for attempt in range(max_retries):
@@ -30,13 +33,13 @@ def run_query_safe(query, max_retries=3):
 with st.spinner("Testing Snowflake connection..."):
     try:
         test_df = run_query_safe("SELECT CURRENT_VERSION() as VERSION, CURRENT_USER() as USER")
-        st.success(f"✅ Connected as {test_df['USER'].iloc[0]}")
+        st.success(f"✅ Connected as {test_df['user'].iloc[0]}")
     except Exception as e:
         st.error(f"❌ Connection failed: {str(e)}")
         st.stop()
 
 # Main application
-tab1, tab2, tab3 = st.tabs(["High Risk Providers", "Billing Anomalies", "Temporal Analysis"])
+tab1, tab2, tab3, tab4= st.tabs(["High Risk Providers", "Billing Anomalies", "Temporal Analysis","Kumo_playground"])
 
 with tab1:
     st.header("High Risk Providers Overview")
@@ -68,7 +71,6 @@ with tab1:
             
             try:
                 df = run_query_safe(query)
-                df
                 # Display metrics
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
@@ -168,7 +170,22 @@ with tab3:
                 st.dataframe(df, use_container_width=True, hide_index=True)
             except Exception as e:
                 st.error(f"Error: {str(e)}")
-
+            
+            
+with tab4:
+    cross_prog_risk = run_query_safe("SELECT * FROM CROSS_PROGRAM_RISK")
+    
+    temporal_analysis = run_query_safe("SELECT * FROM TEMPORAL_PEER_ANALYSIS")
+    billing_anom = run_query_safe("SELECT * FROM PROVIDER_BILLING_ANOMALIES")
+    
+    local_cpr = rfm.LocalTable(cross_prog_risk, name = "Cross Program Risk").infer_metadata()
+    local_ta = rfm.LocalTable(temporal_analysis, name= "Temporal Analysis").infer_metadata()
+    local_ba = rfm.LocalTable(billing_anom, name= "Billing Anomalies").infer_metadata()
+    
+    st.write(local_cpr.print_metadata())
+    st.write(local_ta.print_metadata())
+    st.write(local_ba.print_metadata())
+    
 # Sidebar for additional options
 with st.sidebar:
     st.header("Quick Actions")
