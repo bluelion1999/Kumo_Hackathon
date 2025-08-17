@@ -1,5 +1,8 @@
+streamlit
 pandas
-snowflake
-streamlit 
-time
+numpy
+scipy
+plotly
 kumoai
+snowflake-connector-python
+snowflake-snowpark-python
