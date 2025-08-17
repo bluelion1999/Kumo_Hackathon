@@ -8,6 +8,8 @@ import numpy as np
 from scipy import stats
 
 st.set_page_config(page_title="Medicare Fraud Detection", layout="wide")
+st.write("By: Bryce Drynan and Marcus Cooper")
+st.write("Built for the KumoRFM Hackathon")
 st.title("🚨🩺💊Medicare Provider Investigation Dashboard💊🩺🚨")
 
 if 'validated' not in st.session_state:
@@ -200,7 +202,120 @@ with st.sidebar:
 # Main application
 tab1, tab2, tab3, tab4= st.tabs(["Home", "Kumo Predictions","Temporal Analysis","High Risk Providers"])
 with tab1:
-    st
+    # Key Metrics Dashboard
+    st.header("📊 System Overview")
+    
+    try:
+        # Get summary statistics
+        total_providers = run_query_safe("SELECT COUNT(DISTINCT NPI) as count FROM PROVIDERS")['count'][0]
+        high_risk_count = run_query_safe("SELECT COUNT(*) as count FROM HIGH_RISK_PROVIDERS WHERE total_risk_score >= 5")['count'][0]
+        excluded_providers = run_query_safe("SELECT COUNT(DISTINCT NPI) as count FROM EXCLUSIONS")['count'][0]
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                label="Total Providers Monitored",
+                value=f"{total_providers:,}",
+                delta="Active in system"
+            )
+        
+        with col2:
+            st.metric(
+                label="High Risk Providers",
+                value=f"{high_risk_count:,}",
+                delta=f"{(high_risk_count/total_providers)*100:.1f}% of total",
+                delta_color="inverse"
+            )
+        
+        with col3:
+            st.metric(
+                label="Currently Excluded",
+                value=f"{excluded_providers:,}",
+                delta="OIG Exclusions",
+                delta_color="inverse"
+            )
+            
+    except Exception as e:
+        st.warning("Unable to load system metrics. Please check database connection.")
+    
+    # Features Overview
+    st.header("🔍 Investigation Capabilities")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        ### 🤖 AI-Powered Predictions
+        - **Kumo ML Models**: Advanced predictive analytics for risk assessment
+        - **Cross-Program Analysis**: Identify suspicious patterns across Part B & Part D
+        - **Temporal Forecasting**: Predict future billing anomalies and risk scores
+        - **Real-time Scoring**: Dynamic risk assessment based on latest data
+        """)
+        
+        st.markdown("""
+        ### 📈 Billing Anomaly Detection
+        - **Statistical Outlier Detection**: Z-score analysis vs peer groups
+        - **Growth Pattern Analysis**: Identify suspicious payment increases
+        - **Service Intensity Monitoring**: Track services per beneficiary
+        - **Charge-to-Payment Ratios**: Monitor billing efficiency patterns
+        """)
+    
+    with col2:
+        st.markdown("""
+        ### 💊 Cross-Program Risk Analysis
+        - **Opioid Prescribing Patterns**: Monitor controlled substance prescriptions
+        - **Specialty Mismatch Detection**: Flag inappropriate prescribing by specialty
+        - **Geographic Risk Mapping**: Identify high-risk provider clusters
+        - **Exclusion Network Analysis**: Track providers at excluded addresses
+        """)
+        
+        st.markdown("""
+        ### ⏰ Temporal & Peer Analysis
+        - **Growth Trajectory Tracking**: Monitor provider evolution over time
+        - **Peer Percentile Rankings**: Compare against similar providers
+        - **New Provider Monitoring**: Special attention to recent market entrants
+        - **Persistence Scoring**: Track sustained high-risk behavior
+        """)
+    
+    # System Information
+    st.header("ℹ️ System Information")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        ### 📊 Data Sources
+        - **Medicare Part B Claims** (2021-2023)
+        - **Medicare Part D Prescriptions** (2021-2023)
+        - **OIG Exclusion Lists** (Current)
+        """)
+        
+        st.markdown("""
+        ### 🎯 Risk Scoring Methodology
+        - **Billing Risk**: Payment patterns, growth rates, peer comparison
+        - **Cross-Program Risk**: Multi-program billing patterns, opioid prescribing
+        - **Temporal Risk**: Historical trends, growth trajectories
+        - **Combined Score**: Weighted algorithm considering all factors
+        """)
+        
+    with col2:
+        
+        
+        st.markdown("""
+        ### 📞 Support & Contact
+        - **Technical Support**: IT-Help@agency.gov
+        - **Investigation Support**: fraud-unit@agency.gov
+        """)
+    
+    # Footer
+    st.markdown("---")
+    st.markdown("""
+    <div style="text-align: center; color: #666; padding: 1rem;">
+        <p>Medicare Fraud Detection System v0.1 | Last Updated: August 2025</p>
+        <p>⚠️ For Official Use Only - Contains Sensitive Investigation Data</p>
+    </div>
+    """, unsafe_allow_html=True)
 with tab4:
     st.header("High Risk Providers Overview")
     
