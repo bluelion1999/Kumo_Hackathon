@@ -165,6 +165,9 @@ def create_timeseries_chart(historical_df, predicted_value, target_column,
         xaxis_title='Year',
         yaxis_title=y_axis_title,
         hovermode='x unified',
+        yaxis=dict(
+            range=[0, None]  # Anchor y-axis at 0, auto-scale the top
+        ),
         legend=dict(
             yanchor="top",
             y=0.99,
@@ -391,11 +394,11 @@ with tab4:
         
         
     if st.button("Predict Cross Program Risk"):
-        st.write()
+         curr_vals = run_query_safe(f"SELECT ID, npi, risk_score FROM CROSS_PROGRAM_RISK WHERE ID LIKE '%2023' AND STATE = '{selected_state}' ORDER by risk_score DESC LIMIT {limit}")
         
             
     if st.button("Predict Billing Risk"):
-        curr_vals = run_query_safe(f"SELECT ID, npi,total_medicare_reimbursement, risk_score FROM PROVIDER_BILLING_ANOMALIES WHERE ID LIKE '%2023' AND STATE = '{selected_state}' ORDER by risk_score DESC LIMIT {limit}")
+        curr_vals = run_query_safe(f"SELECT ID, npi, risk_score FROM PROVIDER_BILLING_ANOMALIES WHERE ID LIKE '%2023' AND STATE = '{selected_state}' ORDER by risk_score DESC LIMIT {limit}")
         
         for i in range(limit):
             bad_docs = run_query_safe(f"SELECT * FROM PROVIDER_BILLING_ANOMALIES WHERE NPI = cast({curr_vals['npi'][i]} as int) order by 3 desc")
@@ -405,14 +408,15 @@ with tab4:
             query3 = f'PREDICT SUM(billing_anomalies.services_per_beneficiary,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
             query4 = f'PREDICT SUM(billing_anomalies.part_d_claims,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
             risk_score_queries = {
-                'sub_query1' : f"PREDICT SUM(billing_anomalies.payment_zscore,0,12,months) > 2 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                'sub_query1' : f"PREDICT SUM(billing_anomalies.payment_zscore ,0,12,months) > 2 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
                 'sub_query2' : f"PREDICT SUM(billing_anomalies.payment_growth_rate,0,12,months) > 0.5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
                 'sub_query3' : f"PREDICT SUM(billing_anomalies.service_growth_rate,0,12,months) > 0.5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
                 'sub_query4' : f"PREDICT SUM(billing_anomalies.opioid_prescribing_rate,0,12,months) > 0.3 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
                 'sub_query5' : f"PREDICT SUM(billing_anomalies.opioid_prescriber_rate,0,12,months) > 0.5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
                 'sub_query6' : f"PREDICT SUM(billing_anomalies.charge_to_payment_ratio,0,12,months) > 3 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
                 'sub_query7' : f"PREDICT SUM(billing_anomalies.oig_excluded_flag,0,12,months) = 1 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
-                'sub_query8' : f"PREDICT SUM(billing_anomalies.payment_outlier_flag,0,12,months) = 1 FOR temporal_analysis.npi = {curr_vals["npi"][i]}"       
+                'sub_query8' : f"PREDICT SUM(billing_anomalies.payment_outlier_flag,0,12,months) = 1 FOR temporal_analysis.npi = {curr_vals["npi"][i]}", 
+                'sub_query9' : f"PREDICT SUM(billing_anomalies.payment_zscore ,0,12,months) < 2 FOR temporal_analysis.npi = {curr_vals["npi"][i]}"      
             }
 
             df = model.predict(query, num_hops=6)
