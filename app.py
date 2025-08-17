@@ -585,14 +585,14 @@ with tab2:
                 query2 = f"PREDICT SUM(cross_program_risk.opioid_claim_rate,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}"
                 query3 = f"PREDICT SUM(cross_program_risk.opioid_patient_rate,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}"
                 
-                df2 = model.predict(query, num_hops=6)
-                df3 = model.predict(query2, num_hops=6)
-                df4 = model.predict(query3, num_hops=6)
+                df2 = model.predict(query, num_hops=6,random_seed=42)
+                df3 = model.predict(query2, num_hops=6,random_seed=42)
+                df4 = model.predict(query3, num_hops=6,random_seed=42)
                 
                 
                 df = pd.DataFrame()
                 for key in risk_score_queries:
-                    sub_df = model.predict(risk_score_queries[key], num_hops=6)
+                    sub_df = model.predict(risk_score_queries[key], num_hops=6,random_seed=42)
                     sub_df['Query'] = risk_score_queries[key]
                     df = pd.concat([df,sub_df])
             
@@ -643,13 +643,13 @@ with tab2:
                     'sub_query9' : f"PREDICT SUM(billing_anomalies.payment_zscore ,0,12,months) < 2 FOR temporal_analysis.npi = {curr_vals["npi"][i]}"      
                 }
 
-                df = model.predict(query, num_hops=6)
-                df2 = model.predict(query2, num_hops=6)
-                df3 = model.predict(query3, num_hops=6)
-                df4 = model.predict(query4, num_hops=6)
+                df = model.predict(query, num_hops=6,random_seed=42)
+                df2 = model.predict(query2, num_hops=6,random_seed=42)
+                df3 = model.predict(query3, num_hops=6,random_seed=42)
+                df4 = model.predict(query4, num_hops=6,random_seed=42)
                 df5 = pd.DataFrame()
                 for key in risk_score_queries:
-                    sub_df = model.predict(risk_score_queries[key], num_hops=6)
+                    sub_df = model.predict(risk_score_queries[key], num_hops=6,random_seed=42)
                     sub_df['Query'] = risk_score_queries[key]
                     df5 = pd.concat([df5,sub_df])
             
