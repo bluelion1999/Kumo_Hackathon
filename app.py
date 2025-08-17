@@ -20,8 +20,10 @@ if 'validated' not in st.session_state:
 def init_connection():
     return st.connection("snowflake")
 
-kumo_key = os.getenv('KUMO_ACCESS_KEY_ID')
-rfm.init(api_key=kumo_key)
+def init_kumo():
+    rfm.authenticate()
+    kumo_key = os.environ.get("KUMO_API_KEY")
+    rfm.init(api_key=kumo_key)
 
 @st.cache_data
 def run_query_safe(query, max_retries=3):
@@ -199,7 +201,7 @@ with st.sidebar:
         st.cache_resource.clear()
         st.success("Cache cleared!")
 
-
+init_kumo()
 # Main application
 tab1, tab2, tab3, tab4= st.tabs(["Home", "Kumo Predictions","Temporal Analysis","High Risk Providers"])
 with tab1:
