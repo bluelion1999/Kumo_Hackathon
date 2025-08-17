@@ -21,7 +21,8 @@ def init_connection():
     return st.connection("snowflake")
 
 def init_kumo():
-    rfm.authenticate()
+    if not os.environ.get("KUMO_API_KEY"):
+        rfm.authenticate()
     kumo_key = os.environ.get("KUMO_API_KEY")
     rfm.init(api_key=kumo_key)
 
@@ -214,6 +215,12 @@ with tab1:
         high_risk_count = run_query_safe("SELECT COUNT(*) as count FROM HIGH_RISK_PROVIDERS WHERE total_risk_score >= 5")['count'][0]
         excluded_providers = run_query_safe("SELECT COUNT(DISTINCT NPI) as count FROM EXCLUSIONS")['count'][0]
         
+        avg_ba_risk = run_query_safe("SELECT AVG(risk_score) as avg_risk FROM PROVIDER_BILLING_ANOMALIES WHERE ID LIKE '%2023' ")['avg_risk'][0]
+        avg_temp_risk = run_query_safe("SELECT AVG(temporal_risk_score) as avg_risk FROM TEMPORAL_PEER_ANALYSIS")['avg_risk'][0]
+        avg_cross_risk = run_query_safe("SELECT AVG(cross_program_risk_score) as avg_risk FROM CROSS_PROGRAM_RISK WHERE ID LIKE '%2023' ")['avg_risk'][0]
+        
+        
+        
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -221,6 +228,11 @@ with tab1:
                 label="Total Providers Monitored",
                 value=f"{total_providers:,}",
                 delta="Active in system"
+            )
+            
+            st.metric(
+                label="Average Temporal Risk",
+                value=f"{avg_temp_risk:.2}"
             )
         
         with col2:
@@ -231,12 +243,20 @@ with tab1:
                 delta_color="inverse"
             )
         
+            st.metric(
+                label="Average Cross Program Risk",
+                value=f"{avg_cross_risk:.2}"
+            )
         with col3:
             st.metric(
                 label="Currently Excluded",
                 value=f"{excluded_providers:,}",
                 delta="OIG Exclusions",
                 delta_color="inverse"
+            )
+            st.metric(
+                label="Average Billing Anomalies Risk",
+                value=f"{avg_ba_risk:.2}"
             )
             
     except Exception as e:
