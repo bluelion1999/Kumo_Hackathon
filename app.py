@@ -8,8 +8,11 @@ import numpy as np
 from scipy import stats
 
 st.set_page_config(page_title="Medicare Fraud Detection", layout="wide")
-st.title("Medicare Fraud Detection Dashboard")
+st.title("🚨🩺💊Medicare Provider Investigation Dashboard💊🩺🚨")
 
+if 'validated' not in st.session_state:
+    st.session_state.validated = False
+    
 # Initialize connection
 @st.cache_resource
 def init_connection():
@@ -195,16 +198,21 @@ with st.sidebar:
 
 
 # Main application
-tab1, tab2, tab3, tab4= st.tabs(["High Risk Providers", "Billing Anomalies", "Temporal Analysis", "Predictions"])
-
+tab1, tab2, tab3, tab4= st.tabs(["Home", "Kumo Predictions","Temporal Analysis","High Risk Providers"])
 with tab1:
+    st
+with tab4:
     st.header("High Risk Providers Overview")
     
-    col1, col2 = st.columns([2, 1])
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         risk_threshold = st.slider("Minimum Risk Score", 0, 10, 3)
     with col2:
-        limit = st.number_input("Number of providers to show", 10, 100, 20)
+        limit = st.number_input("Max number of providers to show", 10, 100, 20)
+    with col3:
+        st.write("Include excluded Providers?")
+        include_excluded = st.checkbox("""Yes""")
+        st.checkbox("No")
     
     if st.button("Load High Risk Providers", key="high_risk"):
         with st.spinner("Loading data..."):
@@ -218,9 +226,10 @@ with tab1:
                 cross_program_risk_score,
                 temporal_risk_score,
                 total_risk_score,
-                opioid_rate
+                currently_excluded,
+                opioid_rate / 100 as opioid_rate
             FROM MEDICARE_DATA.MODEL_READY.HIGH_RISK_PROVIDERS
-            WHERE total_risk_score >= {risk_threshold}
+            WHERE total_risk_score >= {risk_threshold} AND currently_excluded <= {include_excluded} 
             ORDER BY total_risk_score DESC
             LIMIT {limit}
             """
@@ -228,6 +237,7 @@ with tab1:
             try:
                 df = run_query_safe(query)
                 # Display metrics
+                st.dataframe(df)
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Total Providers", len(df))
@@ -246,11 +256,6 @@ with tab1:
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "total_risk_score": st.column_config.ProgressColumn(
-                            "Risk Score",
-                            min_value=0,
-                            max_value=10,
-                        ),
                         "opioid_rate": st.column_config.ProgressColumn(
                             "Opioid Rate",
                             min_value=0,
@@ -262,34 +267,6 @@ with tab1:
             except Exception as e:
                 st.error(f"Error loading data: {str(e)}")
 
-with tab2:
-    st.header("Billing Anomalies Analysis")
-    
-    if st.button("Load Billing Anomalies", key="billing"):
-        with st.spinner("Loading billing anomalies..."):
-            query = """
-            SELECT 
-                NPI,
-                provider_name_address,
-                STATE,
-                YEAR,
-                payment_zscore,
-                payment_growth_rate,
-                suspicious_payment_growth,
-                opioid_prescribing_rate,
-                risk_score
-            FROM MEDICARE_DATA.MODEL_READY.PROVIDER_BILLING_ANOMALIES
-            WHERE risk_score >= 3
-                AND YEAR(YEAR) = 2023
-            ORDER BY risk_score DESC
-            LIMIT 50
-            """
-            
-            try:
-                df = run_query_safe(query)
-                st.dataframe(df, use_container_width=True, hide_index=True)
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
 
 with tab3:
     st.header("Temporal Analysis")
@@ -298,6 +275,17 @@ with tab3:
         "Growth Trajectory",
         ["All", "Suspicious", "Growing", "Stable", "New_Provider"]
     )
+    
+    states = run_query_safe("SELECT DISTINCT STATE FROM CROSS_PROGRAM_RISK ORDER BY 1")['state']
+    
+    selected_state = st.selectbox(
+        "Which State are you interested in?", 
+        options=states,
+        key="required_selectbox2",
+        help="Please select a provider type to continue",
+        index=None
+    )
+    
     
     if st.button("Load Temporal Analysis", key="temporal"):
         with st.spinner("Loading temporal analysis..."):
@@ -328,7 +316,7 @@ with tab3:
                 st.error(f"Error: {str(e)}")
             
             
-with tab4:
+with tab2:
     with st.spinner("Fetching Data For Model..."):
         
         if 'cpr_table' not in st.session_state:
@@ -378,7 +366,29 @@ with tab4:
     
     states = run_query_safe("SELECT DISTINCT STATE FROM CROSS_PROGRAM_RISK ORDER BY 1")['state']
     
-    selected_state = st.selectbox("Which State are you interested in?", states, index = None)
+    st.subheader("Select Filter Options")
+    by_state = st.checkbox("By State")
+    if by_state:
+        selected_state = st.selectbox(
+            "Which State are you investigating?", 
+            options=states,
+            key="required_selectbox",
+            help="Please select a provider type to continue",
+            index=None
+        )
+    by_npi = st.checkbox('By NPI')
+    if by_npi:
+        providers_avail = run_query_safe("SELECT NPI FROM PROVIDERS")
+        specific_npi = st.text_input("Provide the NPI you are investigating: ")
+        #if int(specific_npi) not in providers_avail['npi']:
+            #st.warning("Not a valid Provider, predictions will not work")
+        
+    by_p_type = st.checkbox('By Provider Type')
+    if by_p_type:
+        p_types = run_query_safe("SELECT DISTINCT PROVIDER_TYPE FROM TEMPORAL_PEER_ANALYSIS")
+        selected_p_type = st.selectbox("Select the Provider Type you are investigating: ", p_types, index = None)
+        
+    
     limit = st.number_input("Number of High Risk Providers to show", 1, 20, 5)
     
     col1, col2, col3 = st.columns([.25,.25,.5])
@@ -390,7 +400,19 @@ with tab4:
         br_button = st.button("Predict Billing Risk")
     
     if cpr_button:
-        curr_vals = run_query_safe(f"SELECT ID, npi, cross_program_risk_score FROM CROSS_PROGRAM_RISK WHERE ID LIKE '%2023' AND STATE = '{selected_state}' ORDER by cross_program_risk_score DESC LIMIT {limit}")
+        where_statement = "WHERE ID LIKE '%2023'"
+        if by_state:
+            where_statement = where_statement + f" AND STATE = '{selected_state}'"
+        if by_npi:
+            where_statement = where_statement + f" AND NPI = {int(specific_npi)}"
+        if by_p_type:
+            where_statement = where_statement + f" AND PART_B_SPECIALTY = '{selected_p_type}'"
+        
+        curr_vals = run_query_safe(f"""SELECT ID, npi, cross_program_risk_score 
+                                   FROM CROSS_PROGRAM_RISK 
+                                   {where_statement} 
+                                   ORDER by cross_program_risk_score DESC 
+                                   LIMIT {limit}""")
 
         for i in range(limit):
             with st.spinner(f"Predictions for {curr_vals['npi'][i]} loading..."):
@@ -435,7 +457,19 @@ with tab4:
             st.dataframe(df)
             
     if br_button:
-        curr_vals = run_query_safe(f"SELECT ID, npi, risk_score FROM PROVIDER_BILLING_ANOMALIES WHERE ID LIKE '%2023' AND STATE = '{selected_state}' ORDER by risk_score DESC LIMIT {limit}")
+        where_statement = "WHERE ID LIKE '%2023'"
+        if by_state:
+            where_statement = where_statement + f" AND STATE = '{selected_state}'"
+        if by_npi:
+            where_statement = where_statement + f" AND NPI = {int(specific_npi)}"
+        if by_p_type:
+            where_statement = where_statement + f" AND PROVIDER_TYPE = '{selected_p_type}'"
+        
+        curr_vals = run_query_safe(f"""SELECT ID, npi, risk_score 
+                                   FROM PROVIDER_BILLING_ANOMALIES 
+                                   {where_statement} 
+                                   ORDER by risk_score DESC 
+                                   LIMIT {limit}""")
         
         for i in range(limit):
             with st.spinner(f"Predictions for {curr_vals['npi'][i]} loading..."):
