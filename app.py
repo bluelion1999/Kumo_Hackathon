@@ -12,6 +12,8 @@ st.title("Medicare Fraud Detection Dashboard")
 def init_connection():
     return st.connection("snowflake")
 
+
+
 @st.cache_data
 def run_query_safe(query, max_retries=3):
     """Run query with automatic retry on connection failure"""
@@ -28,15 +30,16 @@ def run_query_safe(query, max_retries=3):
                 st.cache_resource.clear()  # Clear the connection cache
             else:
                 raise e
+
+# Sidebar for additional options
+with st.sidebar:
+    st.header("Quick Actions")
     
-# Test connection
-with st.spinner("Testing Snowflake connection..."):
-    try:
-        test_df = run_query_safe("SELECT CURRENT_VERSION() as VERSION, CURRENT_USER() as USER")
-        st.success(f"✅ Connected as {test_df['user'].iloc[0]}")
-    except Exception as e:
-        st.error(f"❌ Connection failed: {str(e)}")
-        st.stop()
+    if st.button("Clear Cache"):
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        st.success("Cache cleared!")
+
 
 # Main application
 tab1, tab2, tab3, tab4= st.tabs(["High Risk Providers", "Billing Anomalies", "Temporal Analysis","Kumo_playground"])
@@ -173,32 +176,72 @@ with tab3:
             
             
 with tab4:
-    cross_prog_risk = run_query_safe("SELECT * FROM CROSS_PROGRAM_RISK")
+    with st.spinner("Fetching Data For Model..."):
+        
+        if 'cpr_table' not in st.session_state:
+            st.session_state.cpr_table = run_query_safe("SELECT * FROM CROSS_PROGRAM_RISK")
+        cross_prog_risk = st.session_state.cpr_table
+
+        if 'ta_table' not in st.session_state:
+            st.session_state.ta_table = run_query_safe("SELECT * FROM TEMPORAL_PEER_ANALYSIS")
+        temporal_analysis = st.session_state.ta_table
+                
+        if 'ba_table' not in st.session_state:
+            st.session_state.ba_table = run_query_safe("SELECT * FROM PROVIDER_BILLING_ANOMALIES")
+        billing_anom = st.session_state.ba_table
     
-    temporal_analysis = run_query_safe("SELECT * FROM TEMPORAL_PEER_ANALYSIS")
-    billing_anom = run_query_safe("SELECT * FROM PROVIDER_BILLING_ANOMALIES")
+        cross_prog_risk['year'] = pd.to_datetime(cross_prog_risk['year'])
+        billing_anom['year'] = pd.to_datetime(billing_anom['year'])   
+        temporal_analysis['exclusion_date'] = pd.to_datetime(temporal_analysis['exclusion_date'])
     
-    local_cpr = rfm.LocalTable(cross_prog_risk, name = "Cross Program Risk").infer_metadata()
-    local_ta = rfm.LocalTable(temporal_analysis, name= "Temporal Analysis").infer_metadata()
-    local_ba = rfm.LocalTable(billing_anom, name= "Billing Anomalies").infer_metadata()
+    local_cpr = rfm.LocalTable(cross_prog_risk, name = "cross_program_risk").infer_metadata()
+    local_ta = rfm.LocalTable(temporal_analysis, name= "temporal_analysis").infer_metadata()
+    local_ba = rfm.LocalTable(billing_anom, name= "billing_anomalies").infer_metadata()
     
-    st.write(local_cpr.print_metadata())
-    st.write(local_ta.print_metadata())
-    st.write(local_ba.print_metadata())
+    local_ta.primary_key = 'npi'
+    local_ta['npi'].stype = 'ID'
+    local_ta.time_column = None
+
     
-# Sidebar for additional options
-with st.sidebar:
-    st.header("Quick Actions")
+    graph = rfm.LocalGraph(tables=[
+        local_ba,
+        local_cpr,
+        local_ta
+    ])
     
-    if st.button("Clear Cache"):
-        st.cache_data.clear()
-        st.cache_resource.clear()
-        st.success("Cache cleared!")
+    graph.link(src_table=local_cpr, fkey='npi', dst_table=local_ta)
+    graph.link(src_table=local_ba, fkey='npi', dst_table=local_ta)
     
-    if st.button("Test Connection"):
-        try:
-            conn = init_connection()
-            result = run_query_safe("SELECT 1")
-            st.success("Connection successful!")
-        except Exception as e:
-            st.error(f"Connection failed: {e}")
+    with st.spinner("Model Loading..."):
+        if 'model' not in st.session_state:
+            st.session_state.model = rfm.KumoRFM(graph)
+        model = st.session_state.model
+        
+    
+    states = run_query_safe("SELECT DISTINCT STATE FROM CROSS_PROGRAM_RISK ORDER BY 1")['state']
+    
+    selected_state = st.selectbox("Which State are you interested in?", states)
+    
+    
+    st.write(selected_state)
+    
+    with st.button("Predict Temporal Risk"):
+        curr_vals = run_query_safe("SELECT npi, temporal_risk_score FROM TEMPORAL_PEER_ANALYSIS ORDER by 2 DESC LIMIT 25")
+        out_table = pd.DataFrame()
+        
+        for i in range(25):
+            query = f'PREDICT temporal_risk.temporal_risk_score > {curr_vals['temporal_risk_score'][i]} FOR temporal_risk.npi = {curr_vals['npi'][i]}'
+            df = model.predict(query)
+            out_table = pd.concat(out_table, df)
+        
+        st.dataframe(out_table)
+        
+        
+    with st.button("Predict Cross Program Risk"):
+        st.write()
+    with st.button("Predict Billing Risk"):
+        st.write()
+
+    
+    
+    
