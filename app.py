@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 import kumoai.experimental.rfm as rfm
-
+import os
 
 st.set_page_config(page_title="Medicare Fraud Detection", layout="wide")
 st.title("Medicare Fraud Detection Dashboard")
@@ -12,7 +12,7 @@ st.title("Medicare Fraud Detection Dashboard")
 def init_connection():
     return st.connection("snowflake")
 
-
+rfm.init(api_key='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1ZDJkOTI3YmVhNDIwMjAzODdhNDc1YzRkZWYxNWM1ZSIsImp0aSI6IjU3MTdhYzc5LTE5OGMtNGRiYS04YjQzLTM5OTc0M2Y3NDk0ZCIsImlhdCI6MTc1NDc3NDE4NywiZXhwIjoxNzU5OTU4MTg3fQ.So8CMCTwgRF0frTrv-d0v4AE41fKwclrvaIMz-WIxNY')
 
 @st.cache_data
 def run_query_safe(query, max_retries=3):
@@ -201,6 +201,9 @@ with tab4:
     local_ta.primary_key = 'npi'
     local_ta['npi'].stype = 'ID'
     local_ta.time_column = None
+    local_ta['temporal_risk_score'].stype = 'categorical'
+    local_cpr['cross_program_risk_score'].stype = 'categorical'
+    local_ba['risk_score'].stype ='categorical'
 
     
     graph = rfm.LocalGraph(tables=[
@@ -208,6 +211,7 @@ with tab4:
         local_cpr,
         local_ta
     ])
+    
     
     graph.link(src_table=local_cpr, fkey='npi', dst_table=local_ta)
     graph.link(src_table=local_ba, fkey='npi', dst_table=local_ta)
@@ -225,22 +229,28 @@ with tab4:
     
     st.write(selected_state)
     
-    with st.button("Predict Temporal Risk"):
+    if st.button("Predict Temporal Risk"):
         curr_vals = run_query_safe("SELECT npi, temporal_risk_score FROM TEMPORAL_PEER_ANALYSIS ORDER by 2 DESC LIMIT 25")
         out_table = pd.DataFrame()
-        
+
         for i in range(25):
-            query = f'PREDICT temporal_risk.temporal_risk_score > {curr_vals['temporal_risk_score'][i]} FOR temporal_risk.npi = {curr_vals['npi'][i]}'
+            query = f'PREDICT SUM(temporal_analysis.temporal_risk_score, 0,360, days) > {curr_vals['temporal_risk_score'][i]} FOR temporal_analysis.npi = {curr_vals['npi'][i]}'
             df = model.predict(query)
-            out_table = pd.concat(out_table, df)
+            out_table = pd.concat([out_table, df])
         
         st.dataframe(out_table)
         
         
-    with st.button("Predict Cross Program Risk"):
+    if st.button("Predict Cross Program Risk"):
         st.write()
-    with st.button("Predict Billing Risk"):
-        st.write()
+    if st.button("Predict Billing Risk"):
+        curr_vals = run_query_safe("SELECT ID, risk_score FROM PROVIDER_BILLING_ANOMALIES WHERE ID LIKE '%2023' ORDER by 2 DESC LIMIT 25")
+
+        query = 'PREDICT billing_anomalies.risk_score FOR billing_anomalies.id in ({providers})'
+        df = model.predict(query.format(providers=', '.join(f"'{x}'" for x in curr_vals['id'])))
+        df = df.merge(curr_vals, how='inner', left_on= 'ENTITY', right_on='id')
+
+        st.dataframe(df)
 
     
     
