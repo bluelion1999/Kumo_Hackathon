@@ -20,7 +20,8 @@ if 'validated' not in st.session_state:
 def init_connection():
     return st.connection("snowflake")
 
-rfm.init(api_key='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1ZDJkOTI3YmVhNDIwMjAzODdhNDc1YzRkZWYxNWM1ZSIsImp0aSI6IjU3MTdhYzc5LTE5OGMtNGRiYS04YjQzLTM5OTc0M2Y3NDk0ZCIsImlhdCI6MTc1NDc3NDE4NywiZXhwIjoxNzU5OTU4MTg3fQ.So8CMCTwgRF0frTrv-d0v4AE41fKwclrvaIMz-WIxNY')
+kumo_key = os.getenv('KUMO_ACCESS_KEY_ID')
+rfm.init(api_key=kumo_key)
 
 @st.cache_data
 def run_query_safe(query, max_retries=3):
