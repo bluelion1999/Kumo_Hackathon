@@ -416,8 +416,8 @@ with tab3:
     
     states = run_query_safe("SELECT DISTINCT STATE FROM CROSS_PROGRAM_RISK ORDER BY 1")['state']
     
-    by_state = st.checkbox("By State")
-    if by_state:
+    by_state_t = st.checkbox("By State",key='T')
+    if by_state_t:
         selected_state = st.selectbox(
             "Which State are you investigating?", 
             options=states,
@@ -425,8 +425,8 @@ with tab3:
             help="Please select a provider type to continue",
             index=None
         )
-    by_npi = st.checkbox('By NPI')
-    if by_npi:
+    by_npi_t = st.checkbox('By NPI',key='T2')
+    if by_npi_t:
         providers_avail = run_query_safe("SELECT NPI FROM PROVIDERS")
         specific_npi = st.text_input("Provide the NPI you are investigating: ")
         if int(specific_npi) not in providers_avail['npi'].values:
@@ -435,11 +435,12 @@ with tab3:
     
     if st.button("Load Temporal Analysis", key="temporal"):
         with st.spinner("Loading temporal analysis..."):
-            where_clause = f"WHERE growth_trajectory = '{growth_type}'" if growth_type != "All" else ""
-            
-            if by_state:
+            where_clause = "WHERE 1=1" 
+            if growth_type != 'All':
+                where_clause = where_clause + f" AND growth_trajectory = '{growth_type}'"
+            if by_state_t:
                 where_clause = where_clause + f" AND STATE = '{selected_state}'"
-            if by_npi:
+            if by_npi_t:
                 where_clause = where_clause + f" AND NPI = {int(specific_npi)}"
             
             query = f"""
