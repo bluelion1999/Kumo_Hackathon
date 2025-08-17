@@ -87,6 +87,12 @@ yoy_changes AS (
 SELECT 
     p.*,
     
+    -- Add peer group statistics to the output table
+    pg.avg_payment_per_service,
+    pg.stddev_payment_per_service,
+    pg.avg_services_per_beneficiary,
+    pg.stddev_services_per_beneficiary,
+    
     -- Peer comparison z-scores
     (p.payment_per_service - pg.avg_payment_per_service) / NULLIF(pg.stddev_payment_per_service, 0) AS payment_zscore,
     (p.services_per_beneficiary - pg.avg_services_per_beneficiary) / NULLIF(pg.stddev_services_per_beneficiary, 0) AS service_zscore,
@@ -251,7 +257,22 @@ SELECT
         ELSE 0
     END AS pain_mill_risk_flag,
     
-    -- Calculate combined risk score
+    -- Individual risk score components as separate columns (calculations, not flags)
+    dp.OPIOID_TOTAL_CLAIMS / NULLIF(dp.part_d_claims, 0) AS opioid_claim_rate_calc,
+    dp.OPIOID_LA_TOTAL_CLAIMS / NULLIF(dp.OPIOID_TOTAL_CLAIMS, 0) AS long_acting_opioid_rate_calc,
+    dp.BRAND_TOTAL_CLAIMS / NULLIF(dp.part_d_claims, 0) AS brand_preference_rate_calc,
+    dp.ANTIPSYCHOTIC_GE65_TOTAL_CLAIMS AS antipsychotic_claims_count,
+    dp.part_d_costs / NULLIF(dp.part_b_payments, 0) AS drug_to_medical_ratio_calc,
+    
+    -- Risk score flags based on calculations
+    CASE WHEN dp.OPIOID_TOTAL_CLAIMS / NULLIF(dp.part_d_claims, 0) > 0.3 THEN 1 ELSE 0 END AS high_opioid_rate_flag,
+    CASE WHEN dp.OPIOID_LA_TOTAL_CLAIMS / NULLIF(dp.OPIOID_TOTAL_CLAIMS, 0) > 0.5 THEN 1 ELSE 0 END AS high_long_acting_opioid_flag,
+    CASE WHEN dp.BRAND_TOTAL_CLAIMS / NULLIF(dp.part_d_claims, 0) > 0.7 THEN 1 ELSE 0 END AS high_brand_preference_flag,
+    CASE WHEN dp.ANTIPSYCHOTIC_GE65_TOTAL_CLAIMS > 500 THEN 1 ELSE 0 END AS high_antipsychotic_flag,
+    CASE WHEN e.NPI IS NOT NULL THEN 2 ELSE 0 END AS exclusion_points,
+    CASE WHEN dp.part_d_costs / NULLIF(dp.part_b_payments, 0) > 5 THEN 1 ELSE 0 END AS high_drug_to_medical_ratio_flag,
+    
+    -- Calculate combined risk score using the individual components
     (CASE WHEN dp.OPIOID_TOTAL_CLAIMS / NULLIF(dp.part_d_claims, 0) > 0.3 THEN 1 ELSE 0 END +
      CASE WHEN dp.OPIOID_LA_TOTAL_CLAIMS / NULLIF(dp.OPIOID_TOTAL_CLAIMS, 0) > 0.5 THEN 1 ELSE 0 END +
      CASE WHEN dp.BRAND_TOTAL_CLAIMS / NULLIF(dp.part_d_claims, 0) > 0.7 THEN 1 ELSE 0 END +
