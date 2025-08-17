@@ -416,18 +416,31 @@ with tab3:
     
     states = run_query_safe("SELECT DISTINCT STATE FROM CROSS_PROGRAM_RISK ORDER BY 1")['state']
     
-    selected_state = st.selectbox(
-        "Which State are you interested in?", 
-        options=states,
-        key="required_selectbox2",
-        help="Please select a provider type to continue",
-        index=None
-    )
+    by_state = st.checkbox("By State")
+    if by_state:
+        selected_state = st.selectbox(
+            "Which State are you investigating?", 
+            options=states,
+            key="required_selectbox",
+            help="Please select a provider type to continue",
+            index=None
+        )
+    by_npi = st.checkbox('By NPI')
+    if by_npi:
+        providers_avail = run_query_safe("SELECT NPI FROM PROVIDERS")
+        specific_npi = st.text_input("Provide the NPI you are investigating: ")
+        if int(specific_npi) not in providers_avail['npi'].values:
+            st.warning("Not a valid Provider, predictions will not work")
     
     
     if st.button("Load Temporal Analysis", key="temporal"):
         with st.spinner("Loading temporal analysis..."):
             where_clause = f"WHERE growth_trajectory = '{growth_type}'" if growth_type != "All" else ""
+            
+            if by_state:
+                where_clause = where_clause + f" AND STATE = '{selected_state}'"
+            if by_npi:
+                where_clause = where_clause + f" AND NPI = {int(specific_npi)}"
             
             query = f"""
             SELECT 
@@ -518,8 +531,8 @@ with tab2:
     if by_npi:
         providers_avail = run_query_safe("SELECT NPI FROM PROVIDERS")
         specific_npi = st.text_input("Provide the NPI you are investigating: ")
-        #if int(specific_npi) not in providers_avail['npi']:
-            #st.warning("Not a valid Provider, predictions will not work")
+        if int(specific_npi) not in providers_avail['npi'].values:
+            st.warning("Not a valid Provider, predictions will not work")
         
     by_p_type = st.checkbox('By Provider Type')
     if by_p_type:
