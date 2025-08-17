@@ -244,13 +244,13 @@ with tab4:
     if st.button("Predict Cross Program Risk"):
         st.write()
     if st.button("Predict Billing Risk"):
-        curr_vals = run_query_safe("SELECT ID, risk_score FROM PROVIDER_BILLING_ANOMALIES WHERE ID LIKE '%2023' ORDER by 2 DESC LIMIT 25")
+        curr_vals = run_query_safe("SELECT ID, risk_score, payment_outlier_flag FROM PROVIDER_BILLING_ANOMALIES WHERE ID LIKE '%2023' ORDER by 2 DESC LIMIT 25")
 
-        query = 'PREDICT billing_anomalies.risk_score FOR billing_anomalies.id in ({providers})'
-        df = model.predict(query.format(providers=', '.join(f"'{x}'" for x in curr_vals['id'])))
+        query = 'PREDICT billing_anomalies.payment_outlier_flag, FOR billing_anomalies.id in ({providers})'
+        df = model.predict(query.format(providers=', '.join(f"'{x}'" for x in curr_vals['id'])), num_homs = 4)
         df = df.merge(curr_vals, how='inner', left_on= 'ENTITY', right_on='id')
 
-        st.dataframe(df)
+        st.dataframe(df[df['PREDICTED'] == True])
 
     
     
