@@ -381,57 +381,94 @@ with tab4:
     selected_state = st.selectbox("Which State are you interested in?", states, index = None)
     limit = st.number_input("Number of High Risk Providers to show", 1, 20, 5)
     
-    if st.button("Predict Temporal Risk"):
-        curr_vals = run_query_safe("SELECT npi, temporal_risk_score FROM TEMPORAL_PEER_ANALYSIS ORDER by 2 DESC LIMIT 25")
-        out_table = pd.DataFrame()
+    col1, col2, col3 = st.columns([.25,.25,.5])
+    
+    with col1:
+        cpr_button = st.button("Predict Cross Program Risk")
+        
+    with col2:
+        br_button = st.button("Predict Billing Risk")
+    
+    if cpr_button:
+        curr_vals = run_query_safe(f"SELECT ID, npi, cross_program_risk_score FROM CROSS_PROGRAM_RISK WHERE ID LIKE '%2023' AND STATE = '{selected_state}' ORDER by cross_program_risk_score DESC LIMIT {limit}")
 
-        for i in range(25):
-            query = f'PREDICT SUM(temporal_analysis.temporal_risk_score, 0,360, days) > {curr_vals['temporal_risk_score'][i]} FOR temporal_analysis.npi = {curr_vals['npi'][i]}'
-            df = model.predict(query)
-            out_table = pd.concat([out_table, df])
-        
-        st.dataframe(out_table)
-        
-        
-    if st.button("Predict Cross Program Risk"):
-         curr_vals = run_query_safe(f"SELECT ID, npi, risk_score FROM CROSS_PROGRAM_RISK WHERE ID LIKE '%2023' AND STATE = '{selected_state}' ORDER by risk_score DESC LIMIT {limit}")
-        
+        for i in range(limit):
+            with st.spinner(f"Predictions for {curr_vals['npi'][i]} loading..."):
+                bad_docs = run_query_safe(f"SELECT * FROM CROSS_PROGRAM_RISK WHERE NPI = cast({curr_vals['npi'][i]} as int) order by 3 desc")
+
+
+                risk_score_queries = {
+                    'sub_query1' : f"PREDICT SUM(cross_program_risk.opioid_claim_rate_calc,0,12,months) > 0.3 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                    'sub_query2' : f"PREDICT SUM(cross_program_risk.long_acting_opioid_rate_calc,0,12,months) > 0.5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                    'sub_query3' : f"PREDICT SUM(cross_program_risk.brand_preference_rate_calc,0,12,months) > 0.7 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                    'sub_query4' : f"PREDICT SUM(cross_program_risk.antipsychotic_claims_count,0,12,months) > 500 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                    'sub_query5' : f"PREDICT SUM(cross_program_risk.drug_to_medical_ratio_calc,0,12,months) > 5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                    'sub_query6' : f"PREDICT SUM(cross_program_risk.directly_excluded,0,12,months) = 1 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                    'sub_query7' : f"PREDICT SUM(cross_program_risk.address_excluded_flag,0,12,months) = 1  FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                }
+                
+                query = f"PREDICT SUM(cross_program_risk.combined_intensity_score,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}"
+                query2 = f"PREDICT SUM(cross_program_risk.opioid_claim_rate,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}"
+                query3 = f"PREDICT SUM(cross_program_risk.opioid_patient_rate,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}"
+                
+                df2 = model.predict(query, num_hops=6)
+                df3 = model.predict(query2, num_hops=6)
+                df4 = model.predict(query3, num_hops=6)
+                
+                
+                df = pd.DataFrame()
+                for key in risk_score_queries:
+                    sub_df = model.predict(risk_score_queries[key], num_hops=6)
+                    sub_df['Query'] = risk_score_queries[key]
+                    df = pd.concat([df,sub_df])
             
-    if st.button("Predict Billing Risk"):
+            st.header(f'High Cross Program Risk Provider: {bad_docs['npi'][0]}', divider=True)
+            st.metric(value=df['TARGET_PRED'].sum(), label='Projected 2024 Cross Program Risk Score', border = True)
+            st.dataframe(bad_docs)
+            
+            
+            create_timeseries_chart(historical_df=bad_docs[['year','combined_intensity_score']], predicted_value=df2['TARGET_PRED'][0], target_column='combined_intensity_score')
+            create_timeseries_chart(historical_df=bad_docs[['year','opioid_claim_rate']], predicted_value=df3['TARGET_PRED'][0], target_column='opioid_claim_rate')
+            create_timeseries_chart(historical_df=bad_docs[['year','opioid_patient_rate']], predicted_value=df4['TARGET_PRED'][0], target_column='opioid_patient_rate')
+            
+            st.subheader("Raw Predictions for Score Creation")
+            st.dataframe(df)
+            
+    if br_button:
         curr_vals = run_query_safe(f"SELECT ID, npi, risk_score FROM PROVIDER_BILLING_ANOMALIES WHERE ID LIKE '%2023' AND STATE = '{selected_state}' ORDER by risk_score DESC LIMIT {limit}")
         
         for i in range(limit):
-            bad_docs = run_query_safe(f"SELECT * FROM PROVIDER_BILLING_ANOMALIES WHERE NPI = cast({curr_vals['npi'][i]} as int) order by 3 desc")
-            
-            query = f'PREDICT SUM(billing_anomalies.total_medicare_reimbursement,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
-            query2 = f'PREDICT SUM(billing_anomalies.payment_per_service,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
-            query3 = f'PREDICT SUM(billing_anomalies.services_per_beneficiary,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
-            query4 = f'PREDICT SUM(billing_anomalies.part_d_claims,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
-            risk_score_queries = {
-                'sub_query1' : f"PREDICT SUM(billing_anomalies.payment_zscore ,0,12,months) > 2 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
-                'sub_query2' : f"PREDICT SUM(billing_anomalies.payment_growth_rate,0,12,months) > 0.5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
-                'sub_query3' : f"PREDICT SUM(billing_anomalies.service_growth_rate,0,12,months) > 0.5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
-                'sub_query4' : f"PREDICT SUM(billing_anomalies.opioid_prescribing_rate,0,12,months) > 0.3 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
-                'sub_query5' : f"PREDICT SUM(billing_anomalies.opioid_prescriber_rate,0,12,months) > 0.5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
-                'sub_query6' : f"PREDICT SUM(billing_anomalies.charge_to_payment_ratio,0,12,months) > 3 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
-                'sub_query7' : f"PREDICT SUM(billing_anomalies.oig_excluded_flag,0,12,months) = 1 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
-                'sub_query8' : f"PREDICT SUM(billing_anomalies.payment_outlier_flag,0,12,months) = 1 FOR temporal_analysis.npi = {curr_vals["npi"][i]}", 
-                'sub_query9' : f"PREDICT SUM(billing_anomalies.payment_zscore ,0,12,months) < 2 FOR temporal_analysis.npi = {curr_vals["npi"][i]}"      
-            }
-
-            df = model.predict(query, num_hops=6)
-            df2 = model.predict(query2, num_hops=6)
-            df3 = model.predict(query3, num_hops=6)
-            df4 = model.predict(query4, num_hops=6)
-            df5 = pd.DataFrame()
-            for key in risk_score_queries:
-                sub_df = model.predict(risk_score_queries[key], num_hops=6)
-                df5 = pd.concat([df5,sub_df])
-            
+            with st.spinner(f"Predictions for {curr_vals['npi'][i]} loading..."):
+                bad_docs = run_query_safe(f"SELECT * FROM PROVIDER_BILLING_ANOMALIES WHERE NPI = cast({curr_vals['npi'][i]} as int) order by 3 desc")
                 
-            #df = df.merge(curr_vals, how = 'left', left_on = 'ENTITY', right_on = 'id')
+                query = f'PREDICT SUM(billing_anomalies.total_medicare_reimbursement,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
+                query2 = f'PREDICT SUM(billing_anomalies.payment_per_service,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
+                query3 = f'PREDICT SUM(billing_anomalies.services_per_beneficiary,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
+                query4 = f'PREDICT SUM(billing_anomalies.part_d_claims,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
+                risk_score_queries = {
+                    'sub_query1' : f"PREDICT SUM(billing_anomalies.payment_zscore ,0,12,months) > 2 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                    'sub_query2' : f"PREDICT SUM(billing_anomalies.payment_growth_rate,0,12,months) > 0.5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                    'sub_query3' : f"PREDICT SUM(billing_anomalies.service_growth_rate,0,12,months) > 0.5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                    'sub_query4' : f"PREDICT SUM(billing_anomalies.opioid_prescribing_rate,0,12,months) > 0.3 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                    'sub_query5' : f"PREDICT SUM(billing_anomalies.opioid_prescriber_rate,0,12,months) > 0.5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                    'sub_query6' : f"PREDICT SUM(billing_anomalies.charge_to_payment_ratio,0,12,months) > 3 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                    'sub_query7' : f"PREDICT SUM(billing_anomalies.oig_excluded_flag,0,12,months) = 1 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                    'sub_query8' : f"PREDICT SUM(billing_anomalies.payment_outlier_flag,0,12,months) = 1 FOR temporal_analysis.npi = {curr_vals["npi"][i]}", 
+                    'sub_query9' : f"PREDICT SUM(billing_anomalies.payment_zscore ,0,12,months) < 2 FOR temporal_analysis.npi = {curr_vals["npi"][i]}"      
+                }
+
+                df = model.predict(query, num_hops=6)
+                df2 = model.predict(query2, num_hops=6)
+                df3 = model.predict(query3, num_hops=6)
+                df4 = model.predict(query4, num_hops=6)
+                df5 = pd.DataFrame()
+                for key in risk_score_queries:
+                    sub_df = model.predict(risk_score_queries[key], num_hops=6)
+                    sub_df['Query'] = risk_score_queries[key]
+                    df5 = pd.concat([df5,sub_df])
             
-            st.header(f'High Risk Provider: {bad_docs['npi'][0]}', divider=True)
+            
+            st.header(f'High Billing Risk Provider: {bad_docs['npi'][0]}', divider=True)
             st.metric(value=df5['TARGET_PRED'].sum(), label='Projected 2024 Billing Risk Score', border = True)
             st.dataframe(bad_docs)
             
