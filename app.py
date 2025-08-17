@@ -3,6 +3,9 @@ import pandas as pd
 import time
 import kumoai.experimental.rfm as rfm
 import os
+import plotly.graph_objects as go
+import numpy as np
+from scipy import stats
 
 st.set_page_config(page_title="Medicare Fraud Detection", layout="wide")
 st.title("Medicare Fraud Detection Dashboard")
@@ -31,6 +34,153 @@ def run_query_safe(query, max_retries=3):
             else:
                 raise e
 
+
+def create_timeseries_chart(historical_df, predicted_value, target_column, 
+                           year_column='year', confidence_level=0.9, 
+                            y_axis_title='Value'):
+    """
+    Create a time series chart with historical data and predicted value with statistical confidence interval.
+    
+    Parameters:
+    - historical_df: DataFrame with historical data
+    - predicted_value: Single predicted value (float/int)
+    - target_column: Column name for the values to plot
+    - year_column: Column name for the time/year data
+    - confidence_level: Confidence level (default 0.95 = 95%)
+    - title: Chart title
+    - y_axis_title: Y-axis label
+    """
+    title = f"Time Series Prediction for {target_column}"
+    
+    # Create predicted dataframe
+    predicted_df = pd.DataFrame({
+        year_column: ['2024-01-01'],  # Adjust as needed
+        target_column: [predicted_value],
+        'data_type': ['Predicted']
+    })
+    
+    # Prepare historical dataframe
+    hist_df = historical_df[[year_column, target_column]].copy()
+    hist_df['data_type'] = 'Historical'
+    
+    # Combine dataframes
+    combined_df = pd.concat([hist_df, predicted_df], ignore_index=True)
+    combined_df[year_column] = pd.to_datetime(combined_df[year_column])
+    
+    # Create the plotly figure
+    fig = go.Figure()
+    
+    # Add historical data
+    historical_data = combined_df[combined_df['data_type'] == 'Historical']
+    fig.add_trace(go.Scatter(
+        x=historical_data[year_column],
+        y=historical_data[target_column],
+        mode='lines+markers',
+        name='Historical Data',
+        line=dict(color='blue', width=2),
+        marker=dict(size=8)
+    ))
+    
+    # Add predicted data with connection line
+    predicted_data = combined_df[combined_df['data_type'] == 'Predicted']
+    
+    # Connect last historical point to predicted point with dotted line
+    historical_sorted = historical_data.sort_values(year_column)
+    last_historical = historical_sorted.iloc[-1]
+    connection_df = pd.DataFrame({
+        year_column: [last_historical[year_column], predicted_data.iloc[0][year_column]],
+        target_column: [last_historical[target_column], predicted_data.iloc[0][target_column]]
+    })
+    
+    fig.add_trace(go.Scatter(
+        x=connection_df[year_column],
+        y=connection_df[target_column],
+        mode='lines',
+        name='Prediction Connection',
+        line=dict(color='red', width=2, dash='dot'),
+        showlegend=False
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=predicted_data[year_column],
+        y=predicted_data[target_column],
+        mode='markers',
+        name='Predicted Value',
+        marker=dict(color='red', size=10, symbol='diamond')
+    ))
+    
+    # Calculate statistical confidence interval based on historical data
+    historical_values = historical_df[target_column].values
+    n = len(historical_values)
+    
+    # Calculate standard error of the mean
+    std_dev = np.std(historical_values, ddof=1)  # Sample standard deviation
+    std_error = std_dev / np.sqrt(n)
+    
+    # Calculate t-critical value for given confidence level
+    alpha = 1 - confidence_level
+    t_critical = stats.t.ppf(1 - alpha/2, df=n-1)
+    
+    # Calculate margin of error
+    margin_of_error = t_critical * std_error
+    
+    # For prediction interval (more appropriate for forecasting), we add uncertainty
+    # Prediction interval accounts for both estimation uncertainty and natural variation
+    prediction_std_error = std_dev * np.sqrt(1 + 1/n)
+    prediction_margin = t_critical * prediction_std_error
+    
+    # Add statistical confidence interval
+    predicted_val = predicted_data.iloc[0][target_column]
+    
+    # Use prediction interval for forecasting (more conservative and appropriate)
+    upper_bound = predicted_val + prediction_margin
+    lower_bound = max(0, predicted_val - prediction_margin)  # Ensure lower bound is not negative
+    
+    # Calculate actual margins for error bars (asymmetric if lower bound is constrained)
+    upper_margin = upper_bound - predicted_val
+    lower_margin = predicted_val - lower_bound
+    
+    # Add error bar for confidence interval (asymmetric if needed)
+    fig.add_trace(go.Scatter(
+        x=predicted_data[year_column],
+        y=predicted_data[target_column],
+        error_y=dict(
+            type='data',
+            symmetric=False,
+            array=[upper_margin],      # Upper error
+            arrayminus=[lower_margin], # Lower error
+            color='red',
+            thickness=1.5,
+            width=3
+        ),
+        mode='markers',
+        marker=dict(color='rgba(0,0,0,0)', size=0),
+        name=f'{confidence_level*100:.0f}% Prediction Interval',
+        showlegend=True
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        title=title,
+        xaxis_title='Year',
+        yaxis_title=y_axis_title,
+        hovermode='x unified',
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01
+        )
+    )
+   
+    # Display the chart in Streamlit
+    st.plotly_chart(fig, use_container_width=True)
+    st.metric(value = f'{predicted_df[target_column][0]:,.2f}', label = '2024 Prediction')
+    
+    return fig
+
+
+
 # Sidebar for additional options
 with st.sidebar:
     st.header("Quick Actions")
@@ -42,7 +192,7 @@ with st.sidebar:
 
 
 # Main application
-tab1, tab2, tab3, tab4= st.tabs(["High Risk Providers", "Billing Anomalies", "Temporal Analysis","Kumo_playground"])
+tab1, tab2, tab3, tab4= st.tabs(["High Risk Providers", "Billing Anomalies", "Temporal Analysis", "Predictions"])
 
 with tab1:
     st.header("High Risk Providers Overview")
@@ -215,6 +365,7 @@ with tab4:
     
     graph.link(src_table=local_cpr, fkey='npi', dst_table=local_ta)
     graph.link(src_table=local_ba, fkey='npi', dst_table=local_ta)
+
     
     with st.spinner("Model Loading..."):
         if 'model' not in st.session_state:
@@ -224,10 +375,8 @@ with tab4:
     
     states = run_query_safe("SELECT DISTINCT STATE FROM CROSS_PROGRAM_RISK ORDER BY 1")['state']
     
-    selected_state = st.selectbox("Which State are you interested in?", states)
-    
-    
-    st.write(selected_state)
+    selected_state = st.selectbox("Which State are you interested in?", states, index = None)
+    limit = st.number_input("Number of High Risk Providers to show", 1, 20, 5)
     
     if st.button("Predict Temporal Risk"):
         curr_vals = run_query_safe("SELECT npi, temporal_risk_score FROM TEMPORAL_PEER_ANALYSIS ORDER by 2 DESC LIMIT 25")
@@ -243,15 +392,48 @@ with tab4:
         
     if st.button("Predict Cross Program Risk"):
         st.write()
+        
+            
     if st.button("Predict Billing Risk"):
-        curr_vals = run_query_safe("SELECT ID, risk_score, payment_outlier_flag FROM PROVIDER_BILLING_ANOMALIES WHERE ID LIKE '%2023' ORDER by 2 DESC LIMIT 25")
+        curr_vals = run_query_safe(f"SELECT ID, npi,total_medicare_reimbursement, risk_score FROM PROVIDER_BILLING_ANOMALIES WHERE ID LIKE '%2023' AND STATE = '{selected_state}' ORDER by risk_score DESC LIMIT {limit}")
+        
+        for i in range(limit):
+            bad_docs = run_query_safe(f"SELECT * FROM PROVIDER_BILLING_ANOMALIES WHERE NPI = cast({curr_vals['npi'][i]} as int) order by 3 desc")
+            
+            query = f'PREDICT SUM(billing_anomalies.total_medicare_reimbursement,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
+            query2 = f'PREDICT SUM(billing_anomalies.payment_per_service,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
+            query3 = f'PREDICT SUM(billing_anomalies.services_per_beneficiary,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
+            query4 = f'PREDICT SUM(billing_anomalies.part_d_claims,0,12,months) FOR temporal_analysis.npi = {curr_vals["npi"][i]}'
+            risk_score_queries = {
+                'sub_query1' : f"PREDICT SUM(billing_anomalies.payment_zscore,0,12,months) > 2 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                'sub_query2' : f"PREDICT SUM(billing_anomalies.payment_growth_rate,0,12,months) > 0.5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                'sub_query3' : f"PREDICT SUM(billing_anomalies.service_growth_rate,0,12,months) > 0.5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                'sub_query4' : f"PREDICT SUM(billing_anomalies.opioid_prescribing_rate,0,12,months) > 0.3 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                'sub_query5' : f"PREDICT SUM(billing_anomalies.opioid_prescriber_rate,0,12,months) > 0.5 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                'sub_query6' : f"PREDICT SUM(billing_anomalies.charge_to_payment_ratio,0,12,months) > 3 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                'sub_query7' : f"PREDICT SUM(billing_anomalies.oig_excluded_flag,0,12,months) = 1 FOR temporal_analysis.npi = {curr_vals["npi"][i]}",
+                'sub_query8' : f"PREDICT SUM(billing_anomalies.payment_outlier_flag,0,12,months) = 1 FOR temporal_analysis.npi = {curr_vals["npi"][i]}"       
+            }
 
-        query = 'PREDICT billing_anomalies.payment_outlier_flag, FOR billing_anomalies.id in ({providers})'
-        df = model.predict(query.format(providers=', '.join(f"'{x}'" for x in curr_vals['id'])), num_homs = 4)
-        df = df.merge(curr_vals, how='inner', left_on= 'ENTITY', right_on='id')
-
-        st.dataframe(df[df['PREDICTED'] == True])
-
-    
-    
-    
+            df = model.predict(query, num_hops=6)
+            df2 = model.predict(query2, num_hops=6)
+            df3 = model.predict(query3, num_hops=6)
+            df4 = model.predict(query4, num_hops=6)
+            df5 = pd.DataFrame()
+            for key in risk_score_queries:
+                sub_df = model.predict(risk_score_queries[key], num_hops=6)
+                df5 = pd.concat([df5,sub_df])
+            
+                
+            #df = df.merge(curr_vals, how = 'left', left_on = 'ENTITY', right_on = 'id')
+            
+            st.header(f'High Risk Provider: {bad_docs['npi'][0]}', divider=True)
+            st.metric(value=df5['TARGET_PRED'].sum(), label='Projected 2024 Billing Risk Score', border = True)
+            st.dataframe(bad_docs)
+            
+            create_timeseries_chart(historical_df=bad_docs[['year','total_medicare_reimbursement']], predicted_value=df['TARGET_PRED'][0], target_column='total_medicare_reimbursement')
+            create_timeseries_chart(historical_df=bad_docs[['year','payment_per_service']], predicted_value=df2['TARGET_PRED'][0], target_column='payment_per_service')
+            create_timeseries_chart(historical_df=bad_docs[['year','services_per_beneficiary']], predicted_value=df3['TARGET_PRED'][0], target_column='services_per_beneficiary')
+            create_timeseries_chart(historical_df=bad_docs[['year','part_d_claims']], predicted_value=df4['TARGET_PRED'][0], target_column='part_d_claims')
+            st.subheader("Raw Predictions for Score Creation")
+            st.dataframe(df5)
