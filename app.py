@@ -493,8 +493,11 @@ with tab2:
                     WHERE NPI = cast({curr_vals['npi'][i]} as int) 
                     ORDER BY 3 DESC
                 """)
-
-                st.header(f'High Cross Program Risk Provider: {bad_docs["npi"][0]}', divider=True)
+                
+                # Define main prediction queries
+                query = f"PREDICT SUM(cross_program_risk.combined_intensity_score,0,12,months) FOR temporal_analysis.npi = {curr_vals['npi'][i]}"
+                query2 = f"PREDICT SUM(cross_program_risk.opioid_claim_rate,0,12,months) FOR temporal_analysis.npi = {curr_vals['npi'][i]}"
+                query3 = f"PREDICT SUM(cross_program_risk.opioid_patient_rate,0,12,months) FOR temporal_analysis.npi = {curr_vals['npi'][i]}"
                 
                 # Define risk score prediction queries
                 risk_score_queries = {
@@ -506,69 +509,91 @@ with tab2:
                     'sub_query6': f"PREDICT SUM(cross_program_risk.directly_excluded,0,12,months) = 1 FOR temporal_analysis.npi = {curr_vals['npi'][i]}",
                     'sub_query7': f"PREDICT SUM(cross_program_risk.address_excluded_flag,0,12,months) = 1 FOR temporal_analysis.npi = {curr_vals['npi'][i]}",
                 }
+
+                # Individual prediction queries with error handling
+                df = None
+                df2 = None
+                df3 = None
                 
-                # Individual metric predictions with error handling
                 try:
-                    query = f"PREDICT SUM(cross_program_risk.combined_intensity_score,0,12,months) FOR temporal_analysis.npi = {curr_vals['npi'][i]}"
-                    df2 = model.predict(query, num_hops=6, run_mode='fast')
-                    create_timeseries_chart(
-                        historical_df=bad_docs[['year', 'combined_intensity_score']], 
-                        predicted_value=df2['TARGET_PRED'][0], 
-                        target_column='combined_intensity_score'
-                    )
+                    df = model.predict(query, num_hops=6, run_mode='fast')
                 except Exception as e:
                     st.write(f"Error with combined_intensity_score prediction: {str(e)}")
                 
                 try:
-                    query2 = f"PREDICT SUM(cross_program_risk.opioid_claim_rate,0,12,months) FOR temporal_analysis.npi = {curr_vals['npi'][i]}"
-                    df3 = model.predict(query2, num_hops=6, run_mode='fast')
-                    create_timeseries_chart(
-                        historical_df=bad_docs[['year', 'opioid_claim_rate']], 
-                        predicted_value=df3['TARGET_PRED'][0], 
-                        target_column='opioid_claim_rate'
-                    )
+                    df2 = model.predict(query2, num_hops=6, run_mode='fast')
                 except Exception as e:
                     st.write(f"Error with opioid_claim_rate prediction: {str(e)}")
                 
                 try:
-                    query3 = f"PREDICT SUM(cross_program_risk.opioid_patient_rate,0,12,months) FOR temporal_analysis.npi = {curr_vals['npi'][i]}"
-                    df4 = model.predict(query3, num_hops=6, run_mode='fast')
-                    create_timeseries_chart(
-                        historical_df=bad_docs[['year', 'opioid_patient_rate']], 
-                        predicted_value=df4['TARGET_PRED'][0], 
-                        target_column='opioid_patient_rate'
-                    )
+                    df3 = model.predict(query3, num_hops=6, run_mode='fast')
                 except Exception as e:
                     st.write(f"Error with opioid_patient_rate prediction: {str(e)}")
                    
                 # Process risk score queries
-                df = pd.DataFrame()
+                df4 = pd.DataFrame()
                 for key in risk_score_queries:
                     try:
                         sub_df = model.predict(risk_score_queries[key], num_hops=6, run_mode='fast')
                         sub_df['Query'] = risk_score_queries[key]
-                        df = pd.concat([df, sub_df])
+                        df4 = pd.concat([df4, sub_df])
                     except Exception as e:
                         st.write(f"Error with risk score query {key}: {str(e)}")
                         continue
             
-            # Display results
-            if not df.empty:
-                st.metric(
-                    value=df['TARGET_PRED'].sum(), 
-                    label='Projected 2024 Cross Program Risk Score', 
-                    border=True
-                )
-            else:
-                st.warning("Unable to calculate risk score due to prediction errors")
-            
-            st.dataframe(bad_docs)
-            
-            st.subheader("Raw Predictions for Score Creation")
-            if not df.empty:
-                st.dataframe(df)
-            else:
-                st.write("No risk score predictions available")
+                # Display provider header and results
+                st.header(f'High Cross Program Risk Provider: {bad_docs["npi"][0]}', divider=True)
+                
+                # Display risk score metric if available
+                if not df4.empty:
+                    st.metric(
+                        value=df4['TARGET_PRED'].sum(), 
+                        label='Projected 2024 Cross Program Risk Score', 
+                        border=True
+                    )
+                else:
+                    st.warning("Unable to calculate risk score due to prediction errors")
+                
+                # Display historical data
+                st.dataframe(bad_docs)
+                
+                # Create time series charts only if predictions were successful
+                if df is not None:
+                    try:
+                        create_timeseries_chart(
+                            historical_df=bad_docs[['year', 'combined_intensity_score']], 
+                            predicted_value=df['TARGET_PRED'][0], 
+                            target_column='combined_intensity_score'
+                        )
+                    except Exception as e:
+                        st.write(f"Error creating combined_intensity_score chart: {str(e)}")
+                
+                if df2 is not None:
+                    try:
+                        create_timeseries_chart(
+                            historical_df=bad_docs[['year', 'opioid_claim_rate']], 
+                            predicted_value=df2['TARGET_PRED'][0], 
+                            target_column='opioid_claim_rate'
+                        )
+                    except Exception as e:
+                        st.write(f"Error creating opioid_claim_rate chart: {str(e)}")
+                
+                if df3 is not None:
+                    try:
+                        create_timeseries_chart(
+                            historical_df=bad_docs[['year', 'opioid_patient_rate']], 
+                            predicted_value=df3['TARGET_PRED'][0], 
+                            target_column='opioid_patient_rate'
+                        )
+                    except Exception as e:
+                        st.write(f"Error creating opioid_patient_rate chart: {str(e)}")
+                
+                # Display raw predictions
+                st.subheader("Raw Predictions for Score Creation")
+                if not df4.empty:
+                    st.dataframe(df4)
+                else:
+                    st.write("No risk score predictions available")
             
     # ========================================
     # BILLING RISK PREDICTIONS
@@ -727,6 +752,7 @@ with tab2:
                     st.dataframe(df5)
                 else:
                     st.write("No risk score predictions available")
+               
             
 ####################################################
 ## Tab 3
