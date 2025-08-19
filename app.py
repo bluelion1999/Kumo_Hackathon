@@ -20,14 +20,11 @@ def init_connection():
 
 @st.cache_resource
 def init_kumo():
-    try:
-        if not os.environ.get("KUMO_API_KEY"):
-            rfm.authenticate()
-        kumo_key = os.environ.get("KUMO_API_KEY")
-        rfm.init(api_key=kumo_key)
-        return 'success'
-    except Exception as e:
-        return 'fail'
+    if not os.environ.get("KUMO_API_KEY"):
+        rfm.authenticate()
+    kumo_key = os.environ.get("KUMO_API_KEY")
+    rfm.init(api_key=kumo_key)
+
 
 @st.cache_data
 def run_query_safe(query, max_retries=3):
@@ -204,12 +201,10 @@ with st.sidebar:
         st.cache_data.clear()
         st.cache_resource.clear()
         st.success("Cache cleared!")
-        
-if 'kumo_connect' not in st.session_state:
-    st.session_state.kumo_connect = init_kumo()
+
+init_kumo()
 # Main application
 tab1, tab2, tab3, tab4= st.tabs(["Home", "Kumo Predictions","Temporal Analysis","High Risk Providers"])
-
 
 ####################################################
 ## Tab 1
